@@ -35,8 +35,8 @@ COPY . /DeepSpeech
 RUN cd /DeepSpeech && git submodule sync kenlm/ && git submodule update --init kenlm/
 
 # Build CTC decoder first, to avoid clashes on incompatible versions upgrades
-#RUN cd /DeepSpeech/native_client/ctcdecode && make NUM_PROCESSES=$(nproc) bindings && \
-#    pip3 install --upgrade dist/*.whl
+RUN cd /DeepSpeech/native_client/ctcdecode && make NUM_PROCESSES=$(nproc) bindings && \
+    pip3 install --upgrade dist/*.whl
 
 # Prepare deps
 RUN cd /DeepSpeech && pip3 install --upgrade pip==20.2.2 wheel==0.34.2 setuptools==49.6.0 && \
@@ -46,7 +46,7 @@ RUN cd /DeepSpeech && pip3 install --upgrade pip==20.2.2 wheel==0.34.2 setuptool
     #    we don't want to break that \
     DS_NODECODER=y DS_NOTENSORFLOW=y pip3 install --upgrade -e . && \
     # Tool to convert output graph for inference \
-    curl -vsSL https://github.com/mozilla/DeepSpeech/releases/download/v0.9.3/linux.amd64.convert_graphdef_memmapped_format.xz | xz -d > convert_graphdef_memmapped_format && \
+    curl -sSL https://github.com/mozilla/DeepSpeech/releases/download/v0.9.3/linux.amd64.convert_graphdef_memmapped_format.xz | xz -d > convert_graphdef_memmapped_format && \
     chmod +x convert_graphdef_memmapped_format
 
 # Build KenLM to generate new scorers
