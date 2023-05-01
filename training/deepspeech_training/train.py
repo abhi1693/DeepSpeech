@@ -52,10 +52,12 @@ def variable_on_cpu(name, shape, initializer):
     with tf.device(Config.cpu_device):
         # Create or get apropos variable
         var = tfv1.get_variable(name=name, shape=shape, initializer=initializer)
+    log_info(f'Created variable {name} on CPU memory')
     return var
 
 
 def create_overlapping_windows(batch_x):
+    log_info('Creating overlapping windows')
     batch_size = tf.shape(input=batch_x)[0]
     window_width = 2 * Config.n_context + 1
     num_channels = Config.n_input
@@ -72,10 +74,12 @@ def create_overlapping_windows(batch_x):
     # Remove dummy depth dimension and reshape into [batch_size, n_windows, window_width, n_input]
     batch_x = tf.reshape(batch_x, [batch_size, -1, window_width, num_channels])
 
+    log_info('Created overlapping windows')
     return batch_x
 
 
 def dense(name, x, units, dropout_rate=None, relu=True, layer_norm=False):
+    log_info(f'Creating dense layer {name} with {units} units')
     with tfv1.variable_scope(name):
         bias = variable_on_cpu('bias', [units], tfv1.zeros_initializer())
         weights = variable_on_cpu('weights', [x.shape[-1], units], tfv1.keras.initializers.VarianceScaling(scale=1.0, mode="fan_avg", distribution="uniform"))
@@ -161,6 +165,7 @@ def rnn_impl_static_rnn(x, seq_length, previous_state, reuse):
 
 
 def create_model(batch_x, seq_length, dropout, reuse=False, batch_size=None, previous_state=None, overlap=True, rnn_impl=rnn_impl_lstmblockfusedcell):
+    log_info('Creating model with input shape: %s' % batch_x.shape.as_list())
     layers = {}
 
     # Input shape: [batch_size, n_steps, n_input + 2*n_input*n_context]
@@ -213,6 +218,7 @@ def create_model(batch_x, seq_length, dropout, reuse=False, batch_size=None, pre
     layers['raw_logits'] = layer_6
 
     # Output shape: [n_steps, batch_size, n_hidden_6]
+    log_info('Model created with output shape: %s' % layer_6.shape.as_list())
     return layer_6, layers
 
 
@@ -232,6 +238,7 @@ def calculate_mean_edit_distance_and_loss(iterator, dropout, reuse):
     Next to total and average loss it returns the mean edit distance,
     the decoded result and the batch's original Y.
     '''
+    log_info('Calculating mean edit distance and loss...')
     # Obtain the next batch of data
     batch_filenames, (batch_x, batch_seq_len), batch_y = iterator.get_next()
 
@@ -252,6 +259,7 @@ def calculate_mean_edit_distance_and_loss(iterator, dropout, reuse):
     # Calculate the average loss across the batch
     avg_loss = tf.reduce_mean(input_tensor=total_loss)
 
+    log_info('Done calculating mean edit distance and loss.')
     # Finally we return the average loss
     return avg_loss, non_finite_files
 
@@ -295,6 +303,8 @@ def get_tower_results(iterator, optimizer, dropout_rates):
     tower for which's batch we calculate and return the optimization gradients
     and the average loss across towers.
     '''
+    log_info('Creating %d towers' % len(Config.available_devices))
+
     # To calculate the mean of the losses
     tower_avg_losses = []
 
@@ -335,6 +345,7 @@ def get_tower_results(iterator, optimizer, dropout_rates):
 
     all_non_finite_files = tf.concat(tower_non_finite_files, axis=0)
 
+    log_info('Done creating %d towers' % len(Config.available_devices))
     # Return gradients and the average loss
     return tower_gradients, avg_loss_across_towers, all_non_finite_files
 
@@ -345,6 +356,7 @@ def average_gradients(tower_gradients):
     Note also that this code acts as a synchronization point as it requires all
     GPUs to be finished with their mini-batch before it can run to completion.
     '''
+    log_info('Creating average gradients')
     # List of average gradients to return to the caller
     average_grads = []
 
@@ -372,6 +384,7 @@ def average_gradients(tower_gradients):
             # Add the current tuple to average_grads
             average_grads.append(grad_and_var)
 
+    log_info('Done creating average gradients')
     # Return result to caller
     return average_grads
 
@@ -413,6 +426,8 @@ def log_grads_and_vars(grads_and_vars):
 def train():
     exception_box = ExceptionBox()
 
+    log_info('Creating training and validation datasets ...')
+
     # Create training and validation datasets
     train_set = create_dataset(FLAGS.train_files.split(','),
                                batch_size=FLAGS.train_batch_size,
@@ -432,6 +447,8 @@ def train():
 
     # Make initialization ops for switching between the two sets
     train_init_op = iterator.make_initializer(train_set)
+
+    log_info('Creating model ...')
 
     if FLAGS.dev_files:
         dev_sources = FLAGS.dev_files.split(',')
@@ -471,6 +488,8 @@ def train():
         rate: 0. for rate in dropout_rates
     }
 
+    log_info('Creating optimizer ...')
+
     # Building the graph
     learning_rate_var = tfv1.get_variable('learning_rate', initializer=FLAGS.learning_rate, trainable=False)
     reduce_learning_rate_op = learning_rate_var.assign(tf.multiply(learning_rate_var, FLAGS.plateau_reduction))
@@ -483,6 +502,7 @@ def train():
 
     gradients, loss, non_finite_files = get_tower_results(iterator, optimizer, dropout_rates)
 
+    log_info('Creating training ops ...')
     # Average tower gradients across GPUs
     avg_tower_gradients = average_gradients(gradients)
     log_grads_and_vars(avg_tower_gradients)
@@ -519,11 +539,15 @@ def train():
     with open_remote(flags_file, 'w') as fout:
         fout.write(FLAGS.flags_into_string())
 
+    log_info('Creating session ...')
+
     with tfv1.Session(config=Config.session_config) as session:
-        log_debug('Session opened.')
+        log_info('Session opened.')
 
         # Prevent further graph changes
         tfv1.get_default_graph().finalize()
+
+        log_info('Initializing variables...')
 
         # Load checkpoint or initialize variables
         load_or_init_graph_for_training(session)
@@ -591,6 +615,7 @@ def train():
                 if is_train and FLAGS.checkpoint_secs > 0 and time.time() - checkpoint_time > FLAGS.checkpoint_secs:
                     checkpoint_saver.save(session, checkpoint_path, global_step=current_step)
                     checkpoint_time = time.time()
+                    log_info('Checkpoint saved at step {}'.format(current_step))
 
             pbar.finish()
             mean_loss = total_loss / step_count if step_count > 0 else 0.0
@@ -929,6 +954,7 @@ def do_single_file_inference(input_file_path):
 
 
 def early_training_checks():
+    log_info('Performing early validation checks...')
     # Check for proper scorer early
     if FLAGS.scorer_path:
         scorer = Scorer(FLAGS.lm_alpha, FLAGS.lm_beta,
@@ -946,23 +972,28 @@ def early_training_checks():
 
 
 def main(_):
+    log_info('Starting DeepSpeech training...')
     initialize_globals()
     early_training_checks()
 
     if FLAGS.train_files:
+        log_info('Starting training...')
         tfv1.reset_default_graph()
         tfv1.set_random_seed(FLAGS.random_seed)
         train()
 
     if FLAGS.test_files:
+        log_info('Starting testing...')
         tfv1.reset_default_graph()
         test()
 
     if FLAGS.export_dir and not FLAGS.export_zip:
+        log_info('Starting export...')
         tfv1.reset_default_graph()
         export()
 
     if FLAGS.export_zip:
+        log_info('Starting export and packaging...')
         tfv1.reset_default_graph()
         FLAGS.export_tflite = True
 
@@ -981,6 +1012,7 @@ def main(_):
 def run_script():
     create_flags()
     absl.app.run(main)
+
 
 if __name__ == '__main__':
     run_script()

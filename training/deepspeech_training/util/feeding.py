@@ -16,6 +16,7 @@ from .augmentations import apply_sample_augmentations, apply_graph_augmentations
 from .audio import read_frames_from_file, vad_split, pcm_to_np, DEFAULT_FORMAT
 from .sample_collections import samples_from_sources
 from .helpers import remember_exception, MEGABYTE
+from .logging import create_progressbar, log_debug, log_error, log_info, log_progress, log_warn
 
 
 def audio_to_features(audio, sample_rate, transcript=None, clock=0.0, train_phase=False, augmentations=None, sample_id=None):
@@ -63,6 +64,7 @@ def audiofile_to_features(wav_filename, clock=0.0, train_phase=False, augmentati
 
 
 def entry_to_features(sample_id, audio, sample_rate, transcript, clock, train_phase=False, augmentations=None):
+    log_info('Processing sample {} with samples and {} characters.'.format(sample_id, len(audio), len(transcript)))
     # https://bugs.python.org/issue32117
     sparse_transcript = tf.SparseTensor(*transcript)
     features, features_len = audio_to_features(audio,
@@ -97,12 +99,17 @@ def create_dataset(sources,
                    buffering=1 * MEGABYTE):
     epoch_counter = Counter()  # survives restarts of the dataset and its generator
 
+    log_info('Creating dataset with batch size {} and {} epochs.'.format(batch_size, epochs))
+
     def generate_values():
         epoch = epoch_counter['epoch']
         if train_phase:
             epoch_counter['epoch'] += 1
         samples = samples_from_sources(sources, buffering=buffering, labeled=True, reverse=reverse)
         num_samples = len(samples)
+
+        log_info('Epoch {} contains {} samples before augmentation.'.format(epoch, num_samples))
+
         if limit > 0:
             num_samples = min(limit, num_samples)
         samples = apply_sample_augmentations(samples,
@@ -111,18 +118,21 @@ def create_dataset(sources,
                                              process_ahead=2 * batch_size if process_ahead is None else process_ahead,
                                              clock=epoch / epochs,
                                              final_clock=(epoch + 1) / epochs)
+        log_info('Epoch {} contains {} samples after augmentation.'.format(epoch, num_samples))
         for sample_index, sample in enumerate(samples):
             if sample_index >= num_samples:
                 break
             clock = (epoch * num_samples + sample_index) / (epochs * num_samples) if train_phase and epochs > 0 else 0.0
             transcript = text_to_char_array(sample.transcript, Config.alphabet, context=sample.sample_id)
             transcript = to_sparse_tuple(transcript)
+            log_info('Processing sample {}, remaining samples {}'.format(sample.sample_id, num_samples - sample_index))
             yield sample.sample_id, sample.audio, sample.audio_format.rate, transcript, clock
 
     # Batching a dataset of 2D SparseTensors creates 3D batches, which fail
     # when passed to tf.nn.ctc_loss, so we reshape them to remove the extra
     # dimension here.
     def sparse_reshape(sparse):
+        log_debug('Reshaping sparse tensor {}.'.format(sparse))
         shape = sparse.dense_shape
         return tf.sparse.reshape(sparse, [shape[0], shape[2]])
 
@@ -143,6 +153,8 @@ def create_dataset(sources,
         dataset = dataset.cache(cache_path)
     dataset = (dataset.window(batch_size, drop_remainder=train_phase).flat_map(batch_fn)
                       .prefetch(len(Config.available_devices)))
+
+    log_info('Dataset created.')
     return dataset
 
 

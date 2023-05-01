@@ -21,7 +21,7 @@ from .util.evaluate_tools import calculate_and_print_report, save_samples_json
 from .util.feeding import create_dataset
 from .util.flags import create_flags, FLAGS
 from .util.helpers import check_ctcdecoder_version
-from .util.logging import create_progressbar, log_error, log_progress
+from .util.logging import create_progressbar, log_error, log_progress, log_info
 
 check_ctcdecoder_version()
 
@@ -83,7 +83,10 @@ def evaluate(test_csvs, create_model):
     except NotImplementedError:
         num_processes = 1
 
+    log_info('Using {} processes for decoding.'.format(num_processes))
+
     with tfv1.Session(config=Config.session_config) as session:
+        log_info('Session started')
         load_graph_for_evaluation(session)
 
         def run_test(init_op, dataset):
@@ -106,6 +109,7 @@ def evaluate(test_csvs, create_model):
                 try:
                     batch_wav_filenames, batch_logits, batch_loss, batch_lengths, batch_transcripts = \
                         session.run([batch_wav_filename, transposed, loss, batch_x_len, batch_y])
+                    log_info('Batch loss: {}'.format(batch_loss))
                 except tf.errors.OutOfRangeError:
                     break
 
@@ -128,7 +132,7 @@ def evaluate(test_csvs, create_model):
 
         samples = []
         for csv, init_op in zip(test_csvs, test_init_ops):
-            print('Testing model on {}'.format(csv))
+            log_info('Testing model on {}'.format(csv))
             samples.extend(run_test(init_op, dataset=csv))
         return samples
 
@@ -151,6 +155,7 @@ def main(_):
 def run_script():
     create_flags()
     absl.app.run(main)
+
 
 if __name__ == '__main__':
     run_script()

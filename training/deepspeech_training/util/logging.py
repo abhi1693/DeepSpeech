@@ -45,5 +45,4 @@ def create_progressbar(*args, **kwargs):
 
 
 def log_progress(message):
-    if not FLAGS.show_progressbar:
-        log_info(message)
+    log_info(message)
