@@ -35,8 +35,8 @@ COPY . /DeepSpeech
 RUN cd /DeepSpeech && git submodule sync kenlm/ && git submodule update --init kenlm/
 
 # Build CTC decoder first, to avoid clashes on incompatible versions upgrades
-RUN cd /DeepSpeech/native_client/ctcdecode && make NUM_PROCESSES=$(nproc) bindings && \
-    pip3 install --upgrade dist/*.whl
+#RUN cd /DeepSpeech/native_client/ctcdecode && make NUM_PROCESSES=$(nproc) bindings && \
+#    pip3 install --upgrade dist/*.whl
 
 # Prepare deps
 RUN cd /DeepSpeech && pip3 install --upgrade pip==20.2.2 wheel==0.34.2 setuptools==49.6.0 && \
