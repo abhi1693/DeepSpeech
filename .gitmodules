@@ -5,6 +5,3 @@
 [submodule "tensorflow"]
 	path = tensorflow
 	url = https://github.com/mozilla/tensorflow.git
-[submodule "kenlm"]
-	path = kenlm
-	url = https://github.com/kpu/kenlm
